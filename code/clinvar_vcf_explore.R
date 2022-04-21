@@ -8,51 +8,16 @@ res_set <- c('1Mb','500kb','100kb','50kb','10kb','5kb')
 res_num <- c(1e6,5e5,1e5,5e4,1e4,5e3)
 names(res_num)<-res_set
 #-------------------------------------------------------------------------------------------------------
-tbl_in_fn<-function(tmp_file){
-  tmp_tbl<-get(base::load(tmp_file))
-  tmp_obj<-names(mget(base::load(tmp_file)))
-  rm(list=tmp_obj)
-  rm(tmp_obj)
-  
-  return(tmp_tbl)
-}
-cl_reduce_coord_fn<-function(hmec_dagger_01_tbl,tmp_res,res_num){
-  
-  tmp_bin_tbl<-hmec_dagger_01_tbl %>% filter(res==tmp_res) %>%unnest(cols = "bins")
-  tmp_bin_tbl<-tmp_bin_tbl%>%mutate(end = as.numeric(bins) + res_num[res]-1)
-  tmp_bin_tbl<-tmp_bin_tbl%>%distinct(chr,bins,end)
-  inter_cl_Grange<-   GRanges(seqnames=tmp_bin_tbl$chr,
-                              ranges = IRanges(start=as.numeric(tmp_bin_tbl$bins),
-                                               end=tmp_bin_tbl$end,
-                                               names=paste("cl_inter",1:nrow(tmp_bin_tbl),sep='_')
-                              ))
-  inter_cl_Grange<-IRanges::reduce(inter_cl_Grange)
-  return(inter_cl_Grange)
-  
-}
-
-#-------------------------------------------------------------------------------------------------------
-# table with cluster of interest
-union_hub_file<-"~/Documents/multires_bhicect/Bootstrapp_fn/data/DAGGER_tbl/GM12878_union_trans_res_dagger_tbl.Rda"
-union_cl_file<-"~/Documents/multires_bhicect/Bootstrapp_fn/data/pval_tbl/CAGE_union_GM12878_pval_tbl.Rda"
-
-cl_union_tbl<-tbl_in_fn(union_cl_file)
-hmec_dagger_01_tbl<-tbl_in_fn(union_hub_file) #%>% filter(res == "5kb" | res == "10kb")
-hmec_dagger_01_tbl<-hmec_dagger_01_tbl %>% left_join(.,cl_union_tbl %>% dplyr::rename(node=cl)%>% dplyr::select(chr,node,res,bins))
-#-------------------------------------------------------------------------------------------------------
-# Spectral clustering results
-
-hub_GRange<-do.call("c",lapply(unique(hmec_dagger_01_tbl$res),function(f){
-  tmp<-cl_reduce_coord_fn(hmec_dagger_01_tbl,f,res_num)
-  mcols(tmp)<-tibble(res=f)
-  return(tmp)
-}))
+data(taSNP)
 vcf_file<-"~/Documents/multires_bhicect/data/epi_data/VCF/clinvar_2022_04_16.vcf"
 vcf <- readVcf(vcf_file, "hg19")
 test<-tibble(as.data.frame(info(vcf)))
 test<-test %>% 
   dplyr::select(ALLELEID,CLNDNINCL,CLNDN) %>% 
   mutate(ID=names(rowRanges(vcf)))
+
+var_GRanges<-rowRanges(vcf)
+var_GRanges<-renameSeqlevels(var_GRanges,mapSeqlevels(seqlevels(var_GRanges),"UCSC"))
 
 breast_var_tbl<-test%>% 
   mutate(breast.var=map_dbl(CLNDN,function(x){
@@ -61,8 +26,52 @@ breast_var_tbl<-test%>%
   filter(breast.var>0)
 breast_var_GRange<-rowRanges(vcf)[which(names(rowRanges(vcf)) %in% as.character(breast_var_tbl$ID))]
 breast_var_GRange<-renameSeqlevels(breast_var_GRange,mapSeqlevels(seqlevels(breast_var_GRange),"UCSC"))
+
+
+immune_var_tbl<-test%>% 
+  mutate(immune.var=map_dbl(CLNDN,function(x){
+    length(grep('[I-i]mmun',x))
+  })) %>% 
+  filter(immune.var>0)
+immune_var_GRange<-rowRanges(vcf)[which(names(rowRanges(vcf)) %in% as.character(immune_var_tbl$ID))]
+immune_var_GRange<-renameSeqlevels(immune_var_GRange,mapSeqlevels(seqlevels(immune_var_GRange),"UCSC"))
+
+breast_cancer_gwas<-vroom("~/Documents/multires_bhicect/data/epi_data/VCF/j_breast_cancer.tsv.gz",n_max = 2e4)  
+breast_gwas_Grange<-   GRanges(seqnames=paste0("chr",breast_cancer_gwas$CHR),
+                               ranges = IRanges(start=as.numeric(breast_cancer_gwas$POS),
+                                                end=as.numeric(breast_cancer_gwas$POS)
+                               ))
+
 library(ChIPseeker)
 library(TxDb.Hsapiens.UCSC.hg19.knownGene)
 txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
-peakAnno <- annotatePeak(breast_var_GRange, tssRegion=c(-3000, 3000),TxDb=txdb, annoDb="org.Hs.eg.db",verbose = F)
+peakAnno_breast_clinvar <- annotatePeak(breast_var_GRange, tssRegion=c(-3000, 3000),TxDb=txdb, annoDb="org.Hs.eg.db",verbose = F)@annoStat
+peakAnno_immune_clinvar <- annotatePeak(immune_var_GRange, tssRegion=c(-3000, 3000),TxDb=txdb, annoDb="org.Hs.eg.db",verbose = F)@annoStat
+peakAnno_clinvar <- annotatePeak(var_GRanges[sample(1:length(var_GRanges),2e4)], tssRegion=c(-3000, 3000),TxDb=txdb, annoDb="org.Hs.eg.db",verbose = F)@annoStat
+peakAnno_traser <- annotatePeak(taSNP, tssRegion=c(-3000, 3000),TxDb=txdb, annoDb="org.Hs.eg.db",verbose = F)@annoStat
+peakAnno_gwas <- annotatePeak(breast_gwas_Grange, tssRegion=c(-3000, 3000),TxDb=txdb, annoDb="org.Hs.eg.db",verbose = F)@annoStat
 
+peakAnno_breast_clinvar %>% 
+  as_tibble %>%
+  mutate(set="Breast") %>% 
+  bind_rows(.,
+            peakAnno_clinvar %>% 
+              as_tibble %>%
+              mutate(set="All")) %>% 
+  bind_rows(.,
+            peakAnno_traser %>% 
+              as_tibble %>%
+              mutate(set="traseR")) %>%
+  bind_rows(.,
+            peakAnno_immune_clinvar %>% 
+              as_tibble %>%
+              mutate(set="Immune")) %>%
+  bind_rows(.,
+            peakAnno_gwas %>% 
+              as_tibble %>%
+              mutate(set="Breast_GWAS")) %>%
+  
+  ggplot(.,aes(set,Frequency,fill=Feature))+
+  geom_bar(stat="identity")+
+  scale_fill_brewer(palette="Paired")
+library(vroom)
