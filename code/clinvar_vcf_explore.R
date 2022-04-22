@@ -13,7 +13,7 @@ vcf_file<-"~/Documents/multires_bhicect/data/epi_data/VCF/clinvar_2022_04_16.vcf
 vcf <- readVcf(vcf_file, "hg19")
 test<-tibble(as.data.frame(info(vcf)))
 test<-test %>% 
-  dplyr::select(ALLELEID,CLNDNINCL,CLNDN) %>% 
+  dplyr::select(ALLELEID,CLNSIG,CLNDN,ORIGIN) %>% 
   mutate(ID=names(rowRanges(vcf)))
 
 var_GRanges<-rowRanges(vcf)
@@ -30,13 +30,15 @@ breast_var_GRange<-renameSeqlevels(breast_var_GRange,mapSeqlevels(seqlevels(brea
 
 immune_var_tbl<-test%>% 
   mutate(immune.var=map_dbl(CLNDN,function(x){
-    length(grep('[I-i]mmun',x))
+    length(grep('[I-i]mmun|[L-l]ymph',x))
   })) %>% 
   filter(immune.var>0)
 immune_var_GRange<-rowRanges(vcf)[which(names(rowRanges(vcf)) %in% as.character(immune_var_tbl$ID))]
 immune_var_GRange<-renameSeqlevels(immune_var_GRange,mapSeqlevels(seqlevels(immune_var_GRange),"UCSC"))
 
 breast_cancer_gwas<-vroom("~/Documents/multires_bhicect/data/epi_data/VCF/j_breast_cancer.tsv.gz",n_max = 2e4)  
+breast_cancer_gwas<-vroom("~/Documents/multires_bhicect/data/epi_data/VCF/PLCO_GWAS_explorer/j_breast_cancer.tsv.gz",col_select = 1:2)  
+
 breast_gwas_Grange<-   GRanges(seqnames=paste0("chr",breast_cancer_gwas$CHR),
                                ranges = IRanges(start=as.numeric(breast_cancer_gwas$POS),
                                                 end=as.numeric(breast_cancer_gwas$POS)
@@ -74,4 +76,23 @@ peakAnno_breast_clinvar %>%
   ggplot(.,aes(set,Frequency,fill=Feature))+
   geom_bar(stat="identity")+
   scale_fill_brewer(palette="Paired")
-library(vroom)
+#------------------------------------------
+#Viz of genome distributions for variants
+
+as.data.frame(ranges(immune_var_GRange)) %>% 
+  mutate(chr=as.character(seqnames(immune_var_GRange))) %>%
+  mutate(set="Immune") %>% 
+  bind_rows(.,
+            as.data.frame(ranges(breast_var_GRange)) %>% 
+              mutate(chr=as.character(seqnames(breast_var_GRange))) %>%
+              mutate(set="breast")) %>% 
+  mutate(chr=fct_relevel(chr,paste0("chr",c(1:22,"X","Y","M")))) %>% 
+  ggplot(.,aes(start,chr,color=set))+
+  geom_point(size=0.5)+
+  facet_wrap(set~.)
+
+gg_tmp<-breast_cancer_gwas %>% 
+mutate(CHR=paste0("chr",CHR)) %>%
+  ggplot(.,aes(POS,CHR))+
+  geom_point(size=0.5)
+ggsave("./breast_gwas_coord.png",gg_tmp)
