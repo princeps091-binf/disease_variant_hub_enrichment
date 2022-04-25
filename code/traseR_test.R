@@ -30,39 +30,67 @@ cl_reduce_coord_fn<-function(hmec_dagger_01_tbl,tmp_res,res_num){
   
 }
 
+hub_sets_GRange_build_fn<-function(union_cl_file,union_hub_file){
+  cl_union_tbl<-tbl_in_fn(union_cl_file)
+  hmec_dagger_01_tbl<-tbl_in_fn(union_hub_file) #%>% filter(res == "5kb" | res == "10kb")
+  hmec_dagger_01_tbl<-hmec_dagger_01_tbl %>% left_join(.,cl_union_tbl %>% dplyr::rename(node=cl)%>% dplyr::select(chr,node,res,bins))
+  rm(cl_union_tbl)
+
+  hub_GRange<-do.call("c",lapply(unique(hmec_dagger_01_tbl$res),function(f){
+    tmp<-cl_reduce_coord_fn(hmec_dagger_01_tbl,f,res_num)
+    mcols(tmp)<-tibble(res=f)
+    return(tmp)
+  }))
+  return(hub_GRange)
+}
 #-------------------------------------------------------------------------------------------------------
 # table with cluster of interest
-union_hub_file<-"~/Documents/multires_bhicect/Bootstrapp_fn/data/DAGGER_tbl/HMEC_union_trans_res_dagger_tbl.Rda"
-union_cl_file<-"~/Documents/multires_bhicect/Bootstrapp_fn/data/pval_tbl/CAGE_union_HMEC_pval_tbl.Rda"
+union_hub_files<-c(H1="~/Documents/multires_bhicect/Bootstrapp_fn/data/DAGGER_tbl/H1_union_trans_res_dagger_tbl.Rda",
+                      HMEC="~/Documents/multires_bhicect/Bootstrapp_fn/data/DAGGER_tbl/HMEC_union_trans_res_dagger_tbl.Rda",
+                      GM12878="~/Documents/multires_bhicect/Bootstrapp_fn/data/DAGGER_tbl/GM12878_union_trans_res_dagger_tbl.Rda")
 
-cl_union_tbl<-tbl_in_fn(union_cl_file)
-hmec_dagger_01_tbl<-tbl_in_fn(union_hub_file) #%>% filter(res == "5kb" | res == "10kb")
-hmec_dagger_01_tbl<-hmec_dagger_01_tbl %>% left_join(.,cl_union_tbl %>% dplyr::rename(node=cl)%>% dplyr::select(chr,node,res,bins))
-rm(cl_union_tbl)
+union_cl_files<-c(H1="~/Documents/multires_bhicect/Bootstrapp_fn/data/pval_tbl/CAGE_union_H1_pval_tbl.Rda",
+                      HMEC="~/Documents/multires_bhicect/Bootstrapp_fn/data/pval_tbl/CAGE_union_HMEC_pval_tbl.Rda",
+                      GM12878="~/Documents/multires_bhicect/Bootstrapp_fn/data/pval_tbl/CAGE_union_GM12878_pval_tbl.Rda")
+
 #-------------------------------------------------------------------------------------------------------
 # Spectral clustering results
 
-hub_GRange<-do.call("c",lapply(unique(hmec_dagger_01_tbl$res),function(f){
-  tmp<-cl_reduce_coord_fn(hmec_dagger_01_tbl,f,res_num)
-  mcols(tmp)<-tibble(res=f)
-  return(tmp)
-}))
+hub_GRanges_l<-lapply(names(union_hub_files),function(i){
+  message(i)
+  tmp_union_cl_file<-union_cl_files[i]
+  tmp_union_hub_file<-union_hub_files[i]
+  return(hub_sets_GRange_build_fn(tmp_union_cl_file,tmp_union_hub_file))
+})
+names(hub_GRanges_l)<-names(union_hub_files)
 
 data(taSNP)
 
-res_obj<-traseR(taSNP,IRanges::reduce(hub_GRange),rankby="pvalue",test.method="chisq")
-as_tibble(res_obj$tb.all)
-as_tibble(res_obj$tb2 %>% arrange(desc(odds.ratio))) %>%
-  mutate(Trait_Class=fct_reorder(Trait_Class,p.value,.desc=T)) %>% 
-  filter(q.value<=0.01) %>% 
-  ggplot(.,aes(-log10(p.value),Trait_Class,size=odds.ratio))+
-  geom_point()
+traseR_res_l<-lapply(hub_GRanges_l,function(x){
+  traseR(taSNP,IRanges::reduce(x),rankby="pvalue",test.method="binomial")
+})
 
-as_tibble(res_obj$tb1 %>% arrange(desc(odds.ratio))) %>%
-  mutate(Trait=fct_reorder(Trait,p.value,.desc=T)) %>%
-  filter(q.value<=0.01) %>% 
-  ggplot(.,aes(-log10(p.value),Trait,size=odds.ratio))+
+do.call(bind_rows,lapply(names(traseR_res_l),function(x){
+  as_tibble(traseR_res_l[[x]]$tb2) %>%
+    mutate(Trait_Class=fct_reorder(Trait_Class,p.value,.desc=T)) %>% 
+    filter(q.value<=0.01) %>% 
+    mutate(set=x)
+})) %>% 
+  ggplot(.,aes(-log10(p.value),Trait_Class,size=odds.ratio,color=set))+
   geom_point()
+ggsave("~/Documents/multires_bhicect/weeklies/weekly56/img/taSNP_Trait_class_enrich_res.png")
+
+
+do.call(bind_rows,lapply(names(traseR_res_l),function(x){
+  as_tibble(traseR_res_l[[x]]$tb1) %>%
+    mutate(Trait=fct_reorder(Trait,p.value,.desc=T)) %>% 
+    filter(q.value<=0.01) %>% 
+    mutate(set=x)
+
+})) %>% 
+  ggplot(.,aes(-log10(p.value),Trait,size=odds.ratio,color=set))+
+  geom_point()
+ggsave("~/Documents/multires_bhicect/weeklies/weekly56/img/taSNP_Trait_enrich_res.png")
 
 library(ChIPseeker)
 library(TxDb.Hsapiens.UCSC.hg19.knownGene)
@@ -99,3 +127,4 @@ taSNP_tbl %>%
   ggplot(.,aes(n,Trait_Class))+
   geom_point()+
   scale_x_log10()
+ggsave("~/Documents/multires_bhicect/weeklies/weekly56/img/taSNP_n_Trait_class.png")
