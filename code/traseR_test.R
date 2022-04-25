@@ -32,12 +32,13 @@ cl_reduce_coord_fn<-function(hmec_dagger_01_tbl,tmp_res,res_num){
 
 #-------------------------------------------------------------------------------------------------------
 # table with cluster of interest
-union_hub_file<-"~/Documents/multires_bhicect/Bootstrapp_fn/data/DAGGER_tbl/GM12878_union_trans_res_dagger_tbl.Rda"
-union_cl_file<-"~/Documents/multires_bhicect/Bootstrapp_fn/data/pval_tbl/CAGE_union_GM12878_pval_tbl.Rda"
+union_hub_file<-"~/Documents/multires_bhicect/Bootstrapp_fn/data/DAGGER_tbl/HMEC_union_trans_res_dagger_tbl.Rda"
+union_cl_file<-"~/Documents/multires_bhicect/Bootstrapp_fn/data/pval_tbl/CAGE_union_HMEC_pval_tbl.Rda"
 
 cl_union_tbl<-tbl_in_fn(union_cl_file)
 hmec_dagger_01_tbl<-tbl_in_fn(union_hub_file) #%>% filter(res == "5kb" | res == "10kb")
 hmec_dagger_01_tbl<-hmec_dagger_01_tbl %>% left_join(.,cl_union_tbl %>% dplyr::rename(node=cl)%>% dplyr::select(chr,node,res,bins))
+rm(cl_union_tbl)
 #-------------------------------------------------------------------------------------------------------
 # Spectral clustering results
 
@@ -49,10 +50,19 @@ hub_GRange<-do.call("c",lapply(unique(hmec_dagger_01_tbl$res),function(f){
 
 data(taSNP)
 
-res_obj<-traseR(taSNP,IRanges::reduce(hub_GRange),rankby="pvalue",test.method="nonparametric")
+res_obj<-traseR(taSNP,IRanges::reduce(hub_GRange),rankby="pvalue",test.method="chisq")
 as_tibble(res_obj$tb.all)
-as_tibble(res_obj$tb2 %>% arrange(desc(odds.ratio)))
-as_tibble(res_obj$tb1 %>% arrange(desc(odds.ratio)))
+as_tibble(res_obj$tb2 %>% arrange(desc(odds.ratio))) %>%
+  mutate(Trait_Class=fct_reorder(Trait_Class,p.value,.desc=T)) %>% 
+  filter(q.value<=0.01) %>% 
+  ggplot(.,aes(-log10(p.value),Trait_Class,size=odds.ratio))+
+  geom_point()
+
+as_tibble(res_obj$tb1 %>% arrange(desc(odds.ratio))) %>%
+  mutate(Trait=fct_reorder(Trait,p.value,.desc=T)) %>%
+  filter(q.value<=0.01) %>% 
+  ggplot(.,aes(-log10(p.value),Trait,size=odds.ratio))+
+  geom_point()
 
 library(ChIPseeker)
 library(TxDb.Hsapiens.UCSC.hg19.knownGene)
@@ -77,3 +87,15 @@ SNP_pos_categ_tbl %>%
   coord_flip()+
   geom_bar(stat='identity')+
   scale_fill_brewer(palette="Paired")
+ggsave("~/Documents/multires_bhicect/weeklies/weekly56/img/taSNP_annotation_Trait_class.png")
+
+# basic stat of SNP-set
+taSNP_tbl<-mcols(taSNP) %>% as_tibble
+taSNP_tbl %>% 
+  filter(!(is.na(Trait_Class))) %>% 
+  group_by(Trait_Class) %>% 
+  summarise(n=n()) %>% 
+  mutate(Trait_Class=fct_reorder(Trait_Class,n)) %>% 
+  ggplot(.,aes(n,Trait_Class))+
+  geom_point()+
+  scale_x_log10()
