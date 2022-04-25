@@ -36,6 +36,17 @@ gwas_tbl %>%
   ggplot(.,aes(BETA_European_all,-log10(P_European_all))) + 
   geom_point(alpha=0.1,size=0.1)+
   theme_minimal()
+ggsave("~/Documents/multires_bhicect/weeklies/weekly56/img/PLCO_GWAS_volcano.png")
+
+gg_dist<-gwas_tbl %>% 
+  filter(CHR==22) %>% 
+  mutate(eff=sign(BETA_European_all)* -log10(P_European_all),dir=sign(BETA_European_all)) %>% 
+  ggplot(.,aes(POS,eff,color=dir))+
+  geom_point(size=0.01)+
+  facet_grid(CHR~.,scales="free")+
+  theme(legend.position="none")
+ggsave("~/Documents/multires_bhicect/weeklies/weekly56/img/PLCO_GWAS_gdist_chr22.png",width = 40,height = 23,units = "cm",gg_dist)
+
 
 unique(summary_stats_R6_manifest$category)
 summary_stats_R6_manifest %>% 
