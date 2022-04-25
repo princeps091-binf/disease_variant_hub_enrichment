@@ -2,6 +2,7 @@ library(GenomicRanges)
 library(traseR)
 library(tidyverse)
 library(VariantAnnotation)
+library(scales)
 
 options(scipen = 999999999)
 res_set <- c('1Mb','500kb','100kb','50kb','10kb','5kb')
@@ -56,6 +57,7 @@ peakAnno_breast_clinvar %>%
   ggplot(.,aes(set,Frequency,fill=Feature))+
   geom_bar(stat="identity")+
   scale_fill_brewer(palette="Paired")
+ggsave("~/Documents/multires_bhicect/weeklies/weekly56/img/clinvar_annotation.png")
 #------------------------------------------
 #Viz of genome distributions for variants
 
@@ -66,10 +68,16 @@ as.data.frame(ranges(immune_var_GRange)) %>%
             as.data.frame(ranges(breast_var_GRange)) %>% 
               mutate(chr=as.character(seqnames(breast_var_GRange))) %>%
               mutate(set="breast")) %>% 
-  mutate(chr=fct_relevel(chr,paste0("chr",c(1:22,"X","M")))) %>% 
+  bind_rows(.,
+            as.data.frame(ranges(var_GRanges)) %>% 
+              mutate(chr=as.character(seqnames(var_GRanges))) %>%
+              mutate(set="ALL")) %>% 
+  mutate(chr=fct_relevel(chr,paste0("chr",c(1:22,"X","Y","M")))) %>% 
   ggplot(.,aes(start,chr,color=set))+
-  geom_point(size=0.2)
-
+  geom_point(size=0.2)+
+  scale_x_continuous(labels= label_number(scale = 1/1e6,suffix="Mb"))+
+  facet_wrap(set~.)
+ggsave("~/Documents/multires_bhicect/weeklies/weekly56/img/clinvar_genome_dist.png",width = 25,height=25,units = "cm",dpi = 500)
 immune_var_tbl %>% 
   dplyr::select(ID,ORIGIN) %>% 
   unnest(cols=c(ORIGIN)) %>% 
