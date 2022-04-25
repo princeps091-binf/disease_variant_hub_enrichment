@@ -17,3 +17,12 @@ gwas_tbl %>%
   ggplot(.,aes(beta,-log10(pval))) + 
   geom_point(alpha=0.1,size=0.1)+
   theme_minimal()
+ggsave("~/Documents/multires_bhicect/weeklies/weekly56/img/Finngen_GWAS_volcano.png")
+
+gg_dist<-gwas_tbl %>% 
+  filter(`#chrom`==22) %>% 
+  mutate(eff=sign(beta)* -log10(pval),dir=sign(beta)) %>% 
+  ggplot(.,aes(pos,eff,color=dir))+
+  geom_point(size=0.01)+
+  theme(legend.position="none")
+ggsave("~/Documents/multires_bhicect/weeklies/weekly56/img/Finngen_GWAS_gdist_chr22.png",width = 40,height = 23,units = "cm",gg_dist)
