@@ -45,9 +45,9 @@ hub_sets_GRange_build_fn<-function(union_cl_file,union_hub_file){
 }
 #-------------------------------------------------------------------------------------------------------
 # table with cluster of interest
-union_hub_files<-c(H1="~/Documents/multires_bhicect/Bootstrapp_fn/data/DAGGER_tbl/H1_union_trans_res_dagger_tbl.Rda",
-                      HMEC="~/Documents/multires_bhicect/Bootstrapp_fn/data/DAGGER_tbl/HMEC_union_trans_res_dagger_tbl.Rda",
-                      GM12878="~/Documents/multires_bhicect/Bootstrapp_fn/data/DAGGER_tbl/GM12878_union_trans_res_dagger_tbl.Rda")
+union_hub_files<-c(H1="~/Documents/multires_bhicect/Bootstrapp_fn/data/DAGGER_tbl/trans_res/H1_union_top_trans_res_dagger_tbl.Rda",
+                  HMEC="~/Documents/multires_bhicect/Bootstrapp_fn/data/DAGGER_tbl/trans_res/HMEC_union_top_trans_res_dagger_tbl.Rda",
+                  GM12878="~/Documents/multires_bhicect/Bootstrapp_fn/data/DAGGER_tbl/trans_res/GM12878_union_top_trans_res_dagger_tbl.Rda")
 
 union_cl_files<-c(H1="~/Documents/multires_bhicect/Bootstrapp_fn/data/pval_tbl/CAGE_union_H1_pval_tbl.Rda",
                       HMEC="~/Documents/multires_bhicect/Bootstrapp_fn/data/pval_tbl/CAGE_union_HMEC_pval_tbl.Rda",
@@ -60,7 +60,7 @@ hub_GRanges_l<-lapply(names(union_hub_files),function(i){
   message(i)
   tmp_union_cl_file<-union_cl_files[i]
   tmp_union_hub_file<-union_hub_files[i]
-  return(hub_sets_GRange_build_fn(tmp_union_cl_file,tmp_union_hub_file))
+  return(IRanges::reduce(hub_sets_GRange_build_fn(tmp_union_cl_file,tmp_union_hub_file)))
 })
 names(hub_GRanges_l)<-names(union_hub_files)
 

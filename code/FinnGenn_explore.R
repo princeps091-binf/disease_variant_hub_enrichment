@@ -10,7 +10,9 @@ res_num <- c(1e6,5e5,1e5,5e4,1e4,5e3)
 names(res_num)<-res_set
 #-------------------------------------------------------------------------------------------------------
 GWAS_file<-"~/Documents/multires_bhicect/data/epi_data/VCF/FinnGen/summary_stats_finngen_R6_AUTOIMMUNE.gz"
+#gwas_tbl<-vroom(GWAS_file)
 gwas_tbl<-vroom(GWAS_file, col_select = c(1,2,7,9,10))
+gwas_tbl<-vroom(GWAS_file, col_select = c(1,2))
 
 gwas_tbl %>% 
   sample_n(1e6) %>% 

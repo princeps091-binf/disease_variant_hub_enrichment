@@ -9,7 +9,7 @@ res_set <- c('1Mb','500kb','100kb','50kb','10kb','5kb')
 res_num <- c(1e6,5e5,1e5,5e4,1e4,5e3)
 names(res_num)<-res_set
 #-------------------------------------------------------------------------------------------------------
-GWAS_file<-"~/Documents/multires_bhicect/data/epi_data/VCF/PLCO_GWAS_explorer/j_cll.tsv.gz"
+GWAS_file<-"~/Documents/multires_bhicect/data/epi_data/VCF/PLCO_GWAS_explorer/j_breast_cancer.tsv.gz"
 gwas_tbl<-vroom(GWAS_file,col_select = c(1,2,13,15)) %>% 
   filter(CHR!=23)
 

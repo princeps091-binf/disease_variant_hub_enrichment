@@ -10,6 +10,7 @@ renv::install("Rcpp")
 renv::install("RSQLite")
 renv::install("rvcheck")
 renv::install("ggfun")
+renv::install("valr")
 
 renv::install("YuLab-SMU/treeio")
 renv::install("YuLab-SMU/ggtree")
