@@ -83,9 +83,8 @@ traseR_res_l<-lapply(1:10,function(x){
   return(tmp$tb.all$taSNP.hits)
 })
 
-tmp_cl_tbl<-hub_GRanges_l[[1]] %>% as_tibble %>% dplyr::select(seqnames,start,end)%>%dplyr::rename(chrom=seqnames)
+tmp_cl_tbl<-hub_GRanges_l[[2]] %>% as_tibble %>% dplyr::select(seqnames,start,end)%>%dplyr::rename(chrom=seqnames)
 
-table(mcols(taSNP)$Trait)
 traseR_SNP_count<-map_int(1:5e2,function(x){
   rn_pol<-bed_shuffle(tmp_cl_tbl,genome = hg19_coord,max_tries=1e8,within=T)
   rn_GRange<-GRanges(seqnames=rn_pol$chrom,
@@ -94,4 +93,6 @@ traseR_SNP_count<-map_int(1:5e2,function(x){
   return(length(unique(subjectHits(findOverlaps(rn_GRange,taSNP)))))
 })
 
-length(unique(subjectHits(findOverlaps(hub_GRanges_l[[1]],taSNP))))
+length(unique(subjectHits(findOverlaps(hub_GRanges_l[[2]],taSNP))))
+
+table(mcols(taSNP)$Trait)
