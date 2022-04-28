@@ -84,14 +84,15 @@ traseR_res_l<-lapply(1:10,function(x){
 })
 
 tmp_cl_tbl<-hub_GRanges_l[[2]] %>% as_tibble %>% dplyr::select(seqnames,start,end)%>%dplyr::rename(chrom=seqnames)
-
-traseR_SNP_count<-map_int(1:5e2,function(x){
+plan(multisession,workers=4)
+traseR_SNP_count<-future_map_int(1:5e2,function(x){
   rn_pol<-bed_shuffle(tmp_cl_tbl,genome = hg19_coord,max_tries=1e8,within=T)
   rn_GRange<-GRanges(seqnames=rn_pol$chrom,
                      ranges = IRanges(start=rn_pol$start,
                                       end=rn_pol$end))
   return(length(unique(subjectHits(findOverlaps(rn_GRange,taSNP)))))
 })
+plan(sequential)
 
 length(unique(subjectHits(findOverlaps(hub_GRanges_l[[2]],taSNP))))
 
