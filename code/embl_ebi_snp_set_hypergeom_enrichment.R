@@ -120,10 +120,49 @@ GO_set_enrich_fn<-function(cl_set_gene,cage_active_genes_vec,GOBP_set){
   return(path_tbl)
 }
 
-hub_snp<-mcols(ebi_Grange_hg19)$SNP[unique(subjectHits(findOverlaps(hub_GRanges_l[[3]],ebi_Grange_hg19)))]
+hub_snp<-mcols(ebi_Grange_hg19)$SNP[unique(subjectHits(findOverlaps(hub_GRanges_l[[1]],ebi_Grange_hg19)))]
 tot_snp_set<-unique(unlist(pheno_snp_set_l))
 snp_enrich_tbl<-GO_set_enrich_fn(hub_snp,tot_snp_set,pheno_snp_set_l)
 print(snp_enrich_tbl %>% 
-  filter(FDR<=0.01 & in.gene>100) %>% arrange(desc(OR)) %>% 
-  left_join(ebi_gwas %>% distinct(MAPPED_TRAIT_URI,MAPPED_TRAIT),by=c("Gene.Set"="MAPPED_TRAIT_URI")),n=100)
-            
+  filter(FDR<=0.01) %>% arrange(desc(OR)) %>% 
+  left_join(ebi_gwas %>% distinct(MAPPED_TRAIT_URI,MAPPED_TRAIT),by=c("Gene.Set"="MAPPED_TRAIT_URI")),n=200)
+
+print(snp_enrich_tbl %>% 
+        filter(FDR<=0.01) %>% arrange(desc(OR)) %>% 
+        left_join(ebi_gwas %>% distinct(MAPPED_TRAIT_URI,MAPPED_TRAIT),by=c("Gene.Set"="MAPPED_TRAIT_URI")),n=100)
+
+hub_snp_l<-lapply(hub_GRanges_l,function(x){
+  mcols(ebi_Grange_hg19)$SNP[unique(subjectHits(findOverlaps(x,ebi_Grange_hg19)))]
+})
+names(hub_snp_l)<-names(hub_GRanges_l)
+library(UpSetR)
+UpSetR::upset(fromList(hub_snp_l),order.by = "freq")
+univ_hub_snp<-fromList(hub_snp_l) %>%
+  mutate(SNP=unique(unlist(hub_snp_l))) %>% 
+  filter(H1 ==1 & HMEC == 1 & GM12878 == 1) %>% 
+  dplyr::select(SNP) %>% 
+  unlist
+
+h1_hub_snp<-fromList(hub_snp_l) %>%
+  mutate(SNP=unique(unlist(hub_snp_l))) %>% 
+  filter(H1 ==1 & HMEC == 0 & GM12878 == 0) %>% 
+  dplyr::select(SNP) %>% 
+  unlist
+
+hmec_hub_snp<-fromList(hub_snp_l) %>%
+  mutate(SNP=unique(unlist(hub_snp_l))) %>% 
+  filter(H1 ==0 & HMEC == 1 & GM12878 == 0) %>% 
+  dplyr::select(SNP) %>% 
+  unlist
+
+gm12878_hub_snp<-fromList(hub_snp_l) %>%
+  mutate(SNP=unique(unlist(hub_snp_l))) %>% 
+  filter(H1 ==0 & HMEC == 0 & GM12878 == 1) %>% 
+  dplyr::select(SNP) %>% 
+  unlist
+
+tot_snp_set<-unique(unlist(pheno_snp_set_l))
+snp_enrich_tbl<-GO_set_enrich_fn(h1_hub_snp,tot_snp_set,pheno_snp_set_l)
+print(snp_enrich_tbl %>% 
+        filter(FDR<=0.01) %>% arrange(desc(OR)) %>% 
+        left_join(ebi_gwas %>% distinct(MAPPED_TRAIT_URI,MAPPED_TRAIT),by=c("Gene.Set"="MAPPED_TRAIT_URI")),n=200)
