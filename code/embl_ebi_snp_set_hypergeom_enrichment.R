@@ -67,33 +67,6 @@ names(hub_GRanges_l)<-names(union_hub_files)
 #-------------------------------------------------------------------------------------------------------
 #Load EBI-GWAS data
 ebi_gwas<-vroom("~/Documents/multires_bhicect/data/epi_data/VCF/EMBL_EBI/gwas_catalog_v1.0.2-associations_e105_r2022-04-07.tsv")
-
-EFO_map<-vroom("~/Documents/multires_bhicect/data/epi_data/VCF/EMBL_EBI/gwas-efo-trait-mappings.tsv")
-Cancer_efo_tbl<-EFO_map %>% 
-  filter(`Parent term` == "Cancer") %>% 
-  group_by(`EFO term`) %>% 
-  dplyr::select(`EFO term`,`EFO URI`) %>% distinct
-
-Cancer_efo_tbl<-Cancer_efo_tbl %>% 
-  mutate(EFO=str_split(`EFO URI`,"/",simplify = T)[,5])
-
-Cancer_ebi_gwas<-ebi_gwas %>% 
-  filter(MAPPED_TRAIT_URI %in% Cancer_efo_tbl$`EFO URI`) %>% 
-  filter(!(is.na(CHR_POS))) %>% 
-  mutate(CHR_ID=paste0("chr",CHR_ID))
-ebi_gwas_coord_tbl<-ebi_gwas %>% 
-  filter(!(is.na(CHR_POS))) %>% 
-  mutate(CHR_ID=paste0("chr",CHR_ID))
-
-cancer_ebi_Grange<-   GRanges(seqnames=Cancer_ebi_gwas$CHR_ID,
-                            ranges = IRanges(start=as.numeric(Cancer_ebi_gwas$CHR_POS),
-                                             end=as.numeric(Cancer_ebi_gwas$CHR_POS)
-                            ))
-
-ebi_Grange<-   GRanges(seqnames=ebi_gwas_coord_tbl$CHR_ID,
-                              ranges = IRanges(start=as.numeric(ebi_gwas_coord_tbl$CHR_POS),
-                                               end=as.numeric(ebi_gwas_coord_tbl$CHR_POS)
-                              ))
 ebi_gwas_coord_tbl<-ebi_gwas %>% 
   filter(!(is.na(CHR_POS))) %>% 
   mutate(CHR_ID=paste0("chr",CHR_ID)) %>% 
@@ -104,45 +77,53 @@ ebi_Grange<-   GRanges(seqnames=ebi_gwas_coord_tbl$CHR_ID,
                                         end=as.numeric(ebi_gwas_coord_tbl$CHR_POS),
                        ))
 mcols(ebi_Grange)<-tibble(SNP=ebi_gwas_coord_tbl$SNPS)
-
 ch = import.chain("~/Documents/multires_bhicect/data/epi_data/hg38ToHg19.over.chain")
 ebi_Grange_hg19<-unlist(liftOver(ebi_Grange, ch))
 
-ch = import.chain("~/Documents/multires_bhicect/data/epi_data/hg38ToHg19.over.chain")
-ebi_Grange_hg19<-unlist(liftOver(ebi_Grange, ch))
 
-hg19_coord <- read_delim("~/Documents/multires_bhicect/data/hg19.genome", 
-                         "\t", escape_double = FALSE, col_names = FALSE, 
-                         trim_ws = TRUE)
-names(hg19_coord)<-c("chrom","size")
+pheno_set<-unique(unlist(map(ebi_gwas$MAPPED_TRAIT_URI,function(x){
+  unlist(strsplit(x,", "))
+})))
 
-tmp_cl_tbl<-hub_GRanges_l[[2]] %>% as_tibble %>% dplyr::select(seqnames,start,end)%>%dplyr::rename(chrom=seqnames)
-gap_bed<-read_delim("~/Documents/multires_bhicect/data/gap.bed", 
-                    "\t", escape_double = FALSE, col_names = F, 
-                    trim_ws = TRUE) %>% 
-  dplyr::select(X2,X3,X4) %>% 
-  dplyr::rename(chrom=X2,start=X3,end=X4)
-  
 plan(multisession,workers=5)
-rn_SNP_count<-future_map_int(1:1e3,function(x){
-  rn_pol<-bed_shuffle(tmp_cl_tbl,genome = hg19_coord,excl = gap_bed,max_tries=1e8,within=T)
-  rn_GRange<-GRanges(seqnames=rn_pol$chrom,
-                     ranges = IRanges(start=rn_pol$start,
-                                      end=rn_pol$end))
-  return(length(unique(subjectHits(findOverlaps(rn_GRange,ebi_Grange_hg19)))))
+pheno_snp_set_l<-future_map(pheno_set,function(x){
+  ebi_gwas %>% 
+    filter(!(is.na(CHR_POS))) %>% 
+    filter( MAPPED_TRAIT_URI %in% x) %>% 
+    dplyr::select(SNPS) %>% distinct %>% unlist
 })
 plan(sequential)
+names(pheno_snp_set_l)<-pheno_set
+lapply(pheno_snp_set_l,length)
 
-obs_count<-length(unique(subjectHits(findOverlaps(hub_GRanges_l[[2]],ebi_Grange_hg19))))
-tibble(count=rn_SNP_count) %>% 
-ggplot(.,aes("random",count))+geom_violin()+
-  geom_point(data=tibble(count=obs_count),aes("random",count))
-pnorm(obs_count,mean = mean(rn_SNP_count),sd = sd(rn_SNP_count),lower.tail = F)
-#--------------------------
-hub_snp<-ebi_Grange_hg19[unique(subjectHits(findOverlaps(hub_GRanges_l[[2]],ebi_Grange_hg19)))]
+GO_set_enrich_fn<-function(cl_set_gene,cage_active_genes_vec,GOBP_set){
+  fn_env<-environment()
+  
+  cl<-makeCluster(5)
+  clusterEvalQ(cl, {
+    library(dplyr)
+    print('node ready')
+  })
+  clusterExport(cl,c('cl_set_gene','cage_active_genes_vec'),envir = fn_env)
+  go_pval<-parLapply(cl,GOBP_set,function(tmp_set){
+    hitInSample<-sum(cl_set_gene %in% tmp_set)
+    sampleSize<-length(cl_set_gene)
+    hitInPop<-sum(cage_active_genes_vec %in% tmp_set)
+    failInPop<-length(cage_active_genes_vec) - hitInPop
+    p_val<-phyper(hitInSample-1, hitInPop, failInPop, sampleSize, lower.tail= FALSE)
+    OR_GO<-(hitInSample/sampleSize)/(hitInPop/length(cage_active_genes_vec))
+    return(tibble(p.val=p_val,OR=OR_GO,in.gene=hitInSample))
+  })
+  stopCluster(cl)
+  rm(cl)
+  path_tbl<-do.call(bind_rows,go_pval)%>%mutate(Gene.Set=names(go_pval),FDR=p.adjust(p.val,method='fdr'))%>%dplyr::select(Gene.Set,FDR,OR,in.gene)
+  return(path_tbl)
+}
 
-library(ChIPseeker)
-library(TxDb.Hsapiens.UCSC.hg19.knownGene)
-txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
-peakAnno_hub_snp <- annotatePeak(hub_snp, tssRegion=c(-3000, 3000),TxDb=txdb, annoDb="org.Hs.eg.db",verbose = F)@annoStat
-peakAnno_snp <- annotatePeak(ebi_Grange_hg19, tssRegion=c(-3000, 3000),TxDb=txdb, annoDb="org.Hs.eg.db",verbose = F)@annoStat
+hub_snp<-mcols(ebi_Grange_hg19)$SNP[unique(subjectHits(findOverlaps(hub_GRanges_l[[3]],ebi_Grange_hg19)))]
+tot_snp_set<-unique(unlist(pheno_snp_set_l))
+snp_enrich_tbl<-GO_set_enrich_fn(hub_snp,tot_snp_set,pheno_snp_set_l)
+print(snp_enrich_tbl %>% 
+  filter(FDR<=0.01 & in.gene>100) %>% arrange(desc(OR)) %>% 
+  left_join(ebi_gwas %>% distinct(MAPPED_TRAIT_URI,MAPPED_TRAIT),by=c("Gene.Set"="MAPPED_TRAIT_URI")),n=100)
+            

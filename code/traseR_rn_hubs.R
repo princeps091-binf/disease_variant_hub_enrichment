@@ -2,6 +2,7 @@ library(GenomicRanges)
 library(traseR)
 library(tidyverse)
 library(valr)
+library(furrr)
 options(scipen = 999999999)
 res_set <- c('1Mb','500kb','100kb','50kb','10kb','5kb')
 res_num <- c(1e6,5e5,1e5,5e4,1e4,5e3)
@@ -78,12 +79,12 @@ traseR_res_l<-lapply(1:10,function(x){
   rn_GRange<-GRanges(seqnames=rn_pol$chrom,
                      ranges = IRanges(start=rn_pol$start,
                                       end=rn_pol$end))
-  length(unique(subjectHits(findOverlaps(rn_GRange,taSNP))))
-  tmp<-traseR(taSNP,rn_GRange,rankby="pvalue",test.method="binomial")
-  return(tmp$tb.all$taSNP.hits)
+  #length(unique(subjectHits(findOverlaps(rn_GRange,taSNP))))
+  tmp<-traseR(taSNP,rn_GRange,rankby="pvalue",test.method="binomial",alternative = "greater")
+  return(tmp$tb.all$p.value)
 })
 
-tmp_cl_tbl<-hub_GRanges_l[[2]] %>% as_tibble %>% dplyr::select(seqnames,start,end)%>%dplyr::rename(chrom=seqnames)
+tmp_cl_tbl<-hub_GRanges_l[[1]] %>% as_tibble %>% dplyr::select(seqnames,start,end)%>%dplyr::rename(chrom=seqnames)
 plan(multisession,workers=4)
 traseR_SNP_count<-future_map_int(1:5e2,function(x){
   rn_pol<-bed_shuffle(tmp_cl_tbl,genome = hg19_coord,max_tries=1e8,within=T)
@@ -94,6 +95,5 @@ traseR_SNP_count<-future_map_int(1:5e2,function(x){
 })
 plan(sequential)
 
-length(unique(subjectHits(findOverlaps(hub_GRanges_l[[2]],taSNP))))
-
-table(mcols(taSNP)$Trait)
+obs_count<-length(unique(subjectHits(findOverlaps(hub_GRanges_l[[1]],taSNP))))
+pnorm(obs_count,mean = mean(traseR_SNP_count),sd = sd(traseR_SNP_count),lower.tail = F)
