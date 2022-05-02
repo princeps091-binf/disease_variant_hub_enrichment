@@ -73,6 +73,7 @@ names(hg19_coord)<-c("chrom","size")
 tmp_cl_tbl<-hub_GRanges_l[[1]] %>% as_tibble %>% dplyr::select(seqnames,start,end)%>%dplyr::rename(chrom=seqnames)
 
 data(taSNP)
+data(CEU)
 
 traseR_res_l<-lapply(1:10,function(x){
   rn_pol<-bed_shuffle(tmp_cl_tbl,genome = hg19_coord,max_tries=1e8,within=T)
@@ -97,3 +98,21 @@ plan(sequential)
 
 obs_count<-length(unique(subjectHits(findOverlaps(hub_GRanges_l[[1]],taSNP))))
 pnorm(obs_count,mean = mean(traseR_SNP_count),sd = sd(traseR_SNP_count),lower.tail = F)
+
+#Background variant set from 1000 genomes project
+tmp_cl_tbl<-hub_GRanges_l[[1]] %>% as_tibble %>% dplyr::select(seqnames,start,end)%>%dplyr::rename(chrom=seqnames)
+plan(multisession,workers=4)
+traseR_SNP_count<-future_map_int(1:1e2,function(x){
+  rn_pol<-bed_shuffle(tmp_cl_tbl,genome = hg19_coord,max_tries=1e8,within=T)
+  rn_GRange<-GRanges(seqnames=rn_pol$chrom,
+                     ranges = IRanges(start=rn_pol$start,
+                                      end=rn_pol$end))
+  return(length(unique(subjectHits(findOverlaps(rn_GRange,CEU)))))
+})
+plan(sequential)
+
+obs_count<-length(unique(subjectHits(findOverlaps(hub_GRanges_l[[1]],CEU))))
+pnorm(obs_count,mean = mean(traseR_SNP_count),sd = sd(traseR_SNP_count),lower.tail = F)
+tibble(count=traseR_SNP_count,set="rn") %>% 
+  ggplot(.,aes(set,count))+geom_violin()+
+  geom_point(data=tibble(set="rn",count=obs_count))

@@ -44,6 +44,31 @@ hub_sets_GRange_build_fn<-function(union_cl_file,union_hub_file){
   }))
   return(hub_GRange)
 }
+
+GO_set_enrich_fn<-function(cl_set_gene,cage_active_genes_vec,GOBP_set){
+  fn_env<-environment()
+  
+  cl<-makeCluster(5)
+  clusterEvalQ(cl, {
+    library(dplyr)
+    print('node ready')
+  })
+  clusterExport(cl,c('cl_set_gene','cage_active_genes_vec'),envir = fn_env)
+  go_pval<-parLapply(cl,GOBP_set,function(tmp_set){
+    hitInSample<-sum(cl_set_gene %in% tmp_set)
+    sampleSize<-length(cl_set_gene)
+    hitInPop<-sum(cage_active_genes_vec %in% tmp_set)
+    failInPop<-length(cage_active_genes_vec) - hitInPop
+    p_val<-phyper(hitInSample-1, hitInPop, failInPop, sampleSize, lower.tail= FALSE)
+    OR_GO<-(hitInSample/sampleSize)/(hitInPop/length(cage_active_genes_vec))
+    return(tibble(p.val=p_val,OR=OR_GO,in.gene=hitInSample))
+  })
+  stopCluster(cl)
+  rm(cl)
+  path_tbl<-do.call(bind_rows,go_pval)%>%mutate(Gene.Set=names(go_pval),FDR=p.adjust(p.val,method='fdr'))%>%dplyr::select(Gene.Set,FDR,OR,in.gene)
+  return(path_tbl)
+}
+
 #-------------------------------------------------------------------------------------------------------
 # table with cluster of interest
 union_hub_files<-c(H1="~/Documents/multires_bhicect/Bootstrapp_fn/data/DAGGER_tbl/trans_res/H1_union_top_trans_res_dagger_tbl.Rda",
@@ -94,43 +119,56 @@ pheno_snp_set_l<-future_map(pheno_set,function(x){
 })
 plan(sequential)
 names(pheno_snp_set_l)<-pheno_set
-lapply(pheno_snp_set_l,length)
 
-GO_set_enrich_fn<-function(cl_set_gene,cage_active_genes_vec,GOBP_set){
-  fn_env<-environment()
-  
-  cl<-makeCluster(5)
-  clusterEvalQ(cl, {
-    library(dplyr)
-    print('node ready')
-  })
-  clusterExport(cl,c('cl_set_gene','cage_active_genes_vec'),envir = fn_env)
-  go_pval<-parLapply(cl,GOBP_set,function(tmp_set){
-    hitInSample<-sum(cl_set_gene %in% tmp_set)
-    sampleSize<-length(cl_set_gene)
-    hitInPop<-sum(cage_active_genes_vec %in% tmp_set)
-    failInPop<-length(cage_active_genes_vec) - hitInPop
-    p_val<-phyper(hitInSample-1, hitInPop, failInPop, sampleSize, lower.tail= FALSE)
-    OR_GO<-(hitInSample/sampleSize)/(hitInPop/length(cage_active_genes_vec))
-    return(tibble(p.val=p_val,OR=OR_GO,in.gene=hitInSample))
-  })
-  stopCluster(cl)
-  rm(cl)
-  path_tbl<-do.call(bind_rows,go_pval)%>%mutate(Gene.Set=names(go_pval),FDR=p.adjust(p.val,method='fdr'))%>%dplyr::select(Gene.Set,FDR,OR,in.gene)
-  return(path_tbl)
-}
-
-hub_snp<-mcols(ebi_Grange_hg19)$SNP[unique(subjectHits(findOverlaps(hub_GRanges_l[[1]],ebi_Grange_hg19)))]
 tot_snp_set<-unique(unlist(pheno_snp_set_l))
-snp_enrich_tbl<-GO_set_enrich_fn(hub_snp,tot_snp_set,pheno_snp_set_l)
-print(snp_enrich_tbl %>% 
-  filter(FDR<=0.01) %>% arrange(desc(OR)) %>% 
-  left_join(ebi_gwas %>% distinct(MAPPED_TRAIT_URI,MAPPED_TRAIT),by=c("Gene.Set"="MAPPED_TRAIT_URI")),n=200)
 
-print(snp_enrich_tbl %>% 
-        filter(FDR<=0.01) %>% arrange(desc(OR)) %>% 
-        left_join(ebi_gwas %>% distinct(MAPPED_TRAIT_URI,MAPPED_TRAIT),by=c("Gene.Set"="MAPPED_TRAIT_URI")),n=100)
+snp_enrich_l<-lapply(seq_along(hub_GRanges_l),function(x){
+  message(names(hub_GRanges_l)[x])
+  hub_snp<-mcols(ebi_Grange_hg19)$SNP[unique(subjectHits(findOverlaps(hub_GRanges_l[[x]],ebi_Grange_hg19)))]
+  return(GO_set_enrich_fn(hub_snp,tot_snp_set,pheno_snp_set_l))
+  
+})
 
+print(snp_enrich_l[[3]] %>% 
+  filter(FDR<=0.01) %>% arrange(FDR) %>% 
+  left_join(ebi_gwas %>% distinct(MAPPED_TRAIT_URI,MAPPED_TRAIT),by=c("Gene.Set"="MAPPED_TRAIT_URI")) %>% 
+    dplyr::select(MAPPED_TRAIT,FDR,OR,in.gene),n=6)
+
+#-----------------------------------------------------------
+# Enrichment by parent pheno categories
+EFO_map<-vroom("~/Documents/multires_bhicect/data/epi_data/VCF/EMBL_EBI/gwas-efo-trait-mappings.tsv")
+pheno_categ<-unique(EFO_map$`Parent term`)
+efo_set_l<-map(pheno_categ,function(x){
+return(EFO_map %>% 
+  filter(`Parent term` == x) %>% 
+  dplyr::select(`EFO URI`) %>% ungroup %>% distinct %>% unlist)
+})
+
+plan(multisession,workers=5)
+pheno_efo_categ_snp_set_l<-future_map(efo_set_l,function(x){
+  ebi_gwas %>% 
+    filter(!(is.na(CHR_POS))) %>% 
+    filter( MAPPED_TRAIT_URI %in% x) %>% 
+    dplyr::select(SNPS) %>% distinct %>% unlist
+})
+plan(sequential)
+
+names(pheno_efo_categ_snp_set_l)<-pheno_categ
+
+tot_snp_set<-unique(unlist(pheno_efo_categ_snp_set_l))
+
+snp_categ_enrich_l<-lapply(seq_along(hub_GRanges_l),function(x){
+  message(names(hub_GRanges_l)[x])
+  hub_snp<-mcols(ebi_Grange_hg19)$SNP[unique(subjectHits(findOverlaps(hub_GRanges_l[[x]],ebi_Grange_hg19)))]
+  return(GO_set_enrich_fn(hub_snp,tot_snp_set,pheno_efo_categ_snp_set_l))
+  
+})
+
+print(snp_categ_enrich_l[[1]] %>% 
+        filter(FDR<=0.01) %>% arrange(FDR) ,n=6)
+
+
+#-----------------------------------------------------------
 hub_snp_l<-lapply(hub_GRanges_l,function(x){
   mcols(ebi_Grange_hg19)$SNP[unique(subjectHits(findOverlaps(x,ebi_Grange_hg19)))]
 })
