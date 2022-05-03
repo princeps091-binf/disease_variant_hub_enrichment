@@ -4,6 +4,7 @@ library(furrr)
 library(valr)
 library(rtracklayer)
 library(tidyverse)
+library(formattable)
 options(scipen = 999999999)
 res_set <- c('1Mb','500kb','100kb','50kb','10kb','5kb')
 res_num <- c(1e6,5e5,1e5,5e4,1e4,5e3)
@@ -130,10 +131,13 @@ snp_enrich_l<-lapply(seq_along(hub_GRanges_l),function(x){
   
 })
 
-print(snp_enrich_l[[1]] %>% 
+formattable(snp_enrich_l[[3]] %>% 
   filter(FDR<=0.01) %>% arrange(FDR) %>% 
   left_join(ebi_gwas %>% distinct(MAPPED_TRAIT_URI,MAPPED_TRAIT),by=c("Gene.Set"="MAPPED_TRAIT_URI")) %>% 
-    dplyr::select(MAPPED_TRAIT,FDR,OR,in.gene),n=15)
+    dplyr::select(MAPPED_TRAIT,FDR,OR,in.gene) %>% 
+    arrange(FDR) %>% 
+    mutate(FDR = round(FDR,digits = 20)) %>% 
+    slice_head(n=15))
 
 #-----------------------------------------------------------
 # Enrichment by parent pheno categories
@@ -165,8 +169,10 @@ snp_categ_enrich_l<-lapply(seq_along(hub_GRanges_l),function(x){
   
 })
 
-print(snp_categ_enrich_l[[1]] %>% 
-        filter(FDR<=0.01) %>% arrange(FDR) ,n=6)
+formattable(snp_categ_enrich_l[[1]] %>% 
+              arrange(FDR) %>% 
+              mutate(FDR = round(FDR,digits = 20)) %>% 
+              filter(FDR<=0.01) %>% arrange(FDR))
 
 
 #-----------------------------------------------------------
